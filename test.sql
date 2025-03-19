@@ -1,60 +1,78 @@
--- 1. Retrieve the names and email addresses of all customers who have placed an order in the last month.
-SELECT DISTINCT c.name, c.email 
-FROM Customers c
-JOIN Orders o ON c.customer_id = o.customer_id
-WHERE o.order_date >= DATEADD(MONTH, -1, GETDATE());
+-- Creating tables
+CREATE TABLE Patrons (
+    PatronID SERIAL PRIMARY KEY,
+    Name VARCHAR(255) NOT NULL,
+    Address TEXT,
+    UniqueID VARCHAR(50) UNIQUE NOT NULL
+);
 
--- 2. Add a new customer to the Customers table.
-INSERT INTO Customers (name, email)
-VALUES ('John Doe', 'johndoe@example.com');
+CREATE TABLE Books (
+    ISBN VARCHAR(20) PRIMARY KEY,
+    Title VARCHAR(255) NOT NULL,
+    Author VARCHAR(255) NOT NULL,
+    PublicationYear INT,
+    Genre VARCHAR(100),
+    Availability BOOLEAN DEFAULT TRUE
+);
 
--- 3. Update the price of a specific product.
-UPDATE Products
-SET price = 19.99
-WHERE product_id = 101;
+CREATE TABLE BorrowedBooks (
+    BorrowID SERIAL PRIMARY KEY,
+    PatronID INT REFERENCES Patrons(PatronID),
+    ISBN VARCHAR(20) REFERENCES Books(ISBN),
+    BorrowDate DATE NOT NULL,
+    ReturnDate DATE
+);
 
--- 4. Remove a specific order from the Orders table.
-DELETE FROM Orders
-WHERE order_id = 5001;
+-- Register a new patron
+CREATE OR REPLACE PROCEDURE RegisterPatron(
+    IN p_name VARCHAR(255), 
+    IN p_address TEXT, 
+    IN p_uniqueid VARCHAR(50)
+)
+LANGUAGE SQL AS $$
+INSERT INTO Patrons (Name, Address, UniqueID) VALUES (p_name, p_address, p_uniqueid);
+$$;
 
--- 5. List the top 5 most expensive products.
-SELECT name, price
-FROM Products
-ORDER BY price DESC
-LIMIT 5;
+-- Add a new book entry
+CREATE OR REPLACE PROCEDURE AddBook(
+    IN p_isbn VARCHAR(20), 
+    IN p_title VARCHAR(255), 
+    IN p_author VARCHAR(255), 
+    IN p_pubyear INT, 
+    IN p_genre VARCHAR(100)
+)
+LANGUAGE SQL AS $$
+INSERT INTO Books (ISBN, Title, Author, PublicationYear, Genre) VALUES (p_isbn, p_title, p_author, p_pubyear, p_genre);
+$$;
 
--- 6. Calculate the average order value.
-SELECT AVG(total_order_value) AS avg_order_value
-FROM (
-    SELECT o.order_id, SUM(p.price * oi.quantity) AS total_order_value
-    FROM Orders o
-    JOIN Order_Items oi ON o.order_id = oi.order_id
-    JOIN Products p ON oi.product_id = p.product_id
-    GROUP BY o.order_id
-) AS OrderValues;
+-- Record a book being borrowed
+CREATE OR REPLACE PROCEDURE BorrowBook(
+    IN p_patronid INT, 
+    IN p_isbn VARCHAR(20), 
+    IN p_borrowdate DATE
+)
+LANGUAGE SQL AS $$
+INSERT INTO BorrowedBooks (PatronID, ISBN, BorrowDate) VALUES (p_patronid, p_isbn, p_borrowdate);
+UPDATE Books SET Availability = FALSE WHERE ISBN = p_isbn;
+$$;
 
--- 7. Find the total number of orders placed by each customer.
-SELECT c.customer_id, c.name, COUNT(o.order_id) AS total_orders
-FROM Customers c
-LEFT JOIN Orders o ON c.customer_id = o.customer_id
-GROUP BY c.customer_id, c.name;
+-- Update book availability when returned
+CREATE OR REPLACE PROCEDURE ReturnBook(
+    IN p_isbn VARCHAR(20), 
+    IN p_returndate DATE
+)
+LANGUAGE SQL AS $$
+UPDATE BorrowedBooks SET ReturnDate = p_returndate WHERE ISBN = p_isbn AND ReturnDate IS NULL;
+UPDATE Books SET Availability = TRUE WHERE ISBN = p_isbn;
+$$;
 
--- 8. Retrieve the names of products that have never been ordered.
-SELECT p.name
-FROM Products p
-LEFT JOIN Order_Items oi ON p.product_id = oi.product_id
-WHERE oi.product_id IS NULL;
+-- Retrieve names of patrons who borrowed a specific book
+SELECT DISTINCT p.Name FROM Patrons p
+JOIN BorrowedBooks bb ON p.PatronID = bb.PatronID
+JOIN Books b ON bb.ISBN = b.ISBN
+WHERE b.Title = 'Specific Book Title';
 
--- 9. Create an index to speed up searches by customer email.
-CREATE INDEX idx_customer_email ON Customers(email);
-
--- 10. Generate a report that shows the total revenue for each month.
-SELECT 
-    DATEPART(YEAR, o.order_date) AS order_year, 
-    DATEPART(MONTH, o.order_date) AS order_month, 
-    SUM(p.price * oi.quantity) AS total_revenue
-FROM Orders o
-JOIN Order_Items oi ON o.order_id = oi.order_id
-JOIN Products p ON oi.product_id = p.product_id
-GROUP BY DATEPART(YEAR, o.order_date), DATEPART(MONTH, o.order_date)
-ORDER BY order_year DESC, order_month DESC;
+-- Total books borrowed by each patron
+SELECT p.Name, COUNT(bb.BorrowID) AS TotalBorrowed
+FROM Patrons p
+LEFT JOIN
