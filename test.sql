@@ -1,68 +1,58 @@
--- 1. Retrieve the names and contact details of all customers who have rented a car in the last month
-SELECT DISTINCT c.name, c.email, c.phone
+-- 1. Retrieve the list of customers who have placed more than 5 orders, sorted by their total order value
+SELECT c.customer_id, c.name, COUNT(o.order_id) AS total_orders, SUM(o.total_amount) AS total_order_value
 FROM Customers c
-JOIN Rentals r ON c.customer_id = r.customer_id
-WHERE r.rental_date >= DATE_SUB(CURDATE(), INTERVAL 1 MONTH);
-
--- 2. Calculate the average rental duration for each car model
-SELECT car.model, AVG(r.rental_duration_days) AS avg_rental_duration
-FROM Rentals r
-JOIN Cars car ON r.car_id = car.car_id
-GROUP BY car.model;
-
--- 3. Identify the most and least frequently rented car models
-SELECT car.model, COUNT(r.rental_id) AS rental_count
-FROM Rentals r
-JOIN Cars car ON r.car_id = car.car_id
-GROUP BY car.model
-ORDER BY rental_count DESC;
-
--- 4. Retrieve the details of customers who have made payments above a certain amount in the last quarter
-SELECT DISTINCT c.*
-FROM Customers c
-JOIN Rentals r ON c.customer_id = r.customer_id
-JOIN Payments p ON r.rental_id = p.rental_id
-WHERE p.amount > 500 -- Change 500 to the desired threshold
-AND p.payment_date >= DATE_SUB(CURDATE(), INTERVAL 3 MONTH);
-
--- 5. List all cars due for maintenance based on their mileage
-SELECT car.*
-FROM Cars car
-WHERE car.mileage >= car.maintenance_mileage;
-
--- 6. Rank customers based on the total amount they've spent on rentals
-SELECT c.name, SUM(p.amount) AS total_spent,
-       RANK() OVER (ORDER BY SUM(p.amount) DESC) AS rank_position
-FROM Customers c
-JOIN Rentals r ON c.customer_id = r.customer_id
-JOIN Payments p ON r.rental_id = p.rental_id
+JOIN Orders o ON c.customer_id = o.customer_id
 GROUP BY c.customer_id, c.name
-ORDER BY total_spent DESC;
+HAVING COUNT(o.order_id) > 5
+ORDER BY total_order_value DESC;
 
--- 7. Create a report that shows the daily revenue generated from car rentals
-SELECT r.rental_date, SUM(p.amount) AS daily_revenue
-FROM Rentals r
-JOIN Payments p ON r.rental_id = p.rental_id
-GROUP BY r.rental_date
-ORDER BY r.rental_date;
+-- 2. Add a new product to the 'products' table with an auto-incrementing product ID
+INSERT INTO Products (name, category, price, stock_quantity)
+VALUES ('New Product', 'Electronics', 99.99, 100);
 
--- 8. Identify any customers who have overdue rentals
-SELECT c.*
+-- 3. Update the quantity of a specific product in the 'inventory' table after an order is placed
+UPDATE Inventory 
+SET quantity = quantity - (SELECT quantity FROM Order_Items WHERE product_id = 101 AND order_id = 202)
+WHERE product_id = 101;
+
+-- 4. Remove orders that have been canceled by the customer from the 'orders' table
+DELETE FROM Orders 
+WHERE status = 'Canceled';
+
+-- 5. Fetch all orders placed in the last month, along with the corresponding customer details and product names
+SELECT o.order_id, o.order_date, c.name AS customer_name, p.name AS product_name
+FROM Orders o
+JOIN Customers c ON o.customer_id = c.customer_id
+JOIN Order_Items oi ON o.order_id = oi.order_id
+JOIN Products p ON oi.product_id = p.product_id
+WHERE o.order_date >= DATE_SUB(CURDATE(), INTERVAL 1 MONTH);
+
+-- 6. Calculate the average order value for each customer
+SELECT c.customer_id, c.name, AVG(o.total_amount) AS avg_order_value
 FROM Customers c
-JOIN Rentals r ON c.customer_id = r.customer_id
-WHERE r.due_date < CURDATE() AND r.return_date IS NULL;
+JOIN Orders o ON c.customer_id = o.customer_id
+GROUP BY c.customer_id, c.name;
 
--- 9. Find the average rental price for each car category (e.g., Sedan, SUV, Hatchback)
-SELECT car.category, AVG(r.rental_price_per_day) AS avg_rental_price
-FROM Rentals r
-JOIN Cars car ON r.car_id = car.car_id
-GROUP BY car.category;
+-- 7. Create an index on the 'order_date' column in the 'orders' table to speed up queries filtering by date
+CREATE INDEX idx_order_date ON Orders(order_date);
 
--- 10. Retrieve the top 5 most profitable cars in the fleet
-SELECT car.model, SUM(p.amount) AS total_earnings
-FROM Rentals r
-JOIN Cars car ON r.car_id = car.car_id
-JOIN Payments p ON r.rental_id = p.rental_id
-GROUP BY car.model
-ORDER BY total_earnings DESC
-LIMIT 5;
+-- 8. Design a query to retrieve the top 10 best-selling products
+SELECT p.product_id, p.name, SUM(oi.quantity) AS total_sold
+FROM Order_Items oi
+JOIN Products p ON oi.product_id = p.product_id
+GROUP BY p.product_id, p.name
+ORDER BY total_sold DESC
+LIMIT 10;
+
+-- 9. Find the customers who have purchased the same product more than once
+SELECT c.customer_id, c.name, oi.product_id, p.name AS product_name, COUNT(oi.product_id) AS times_purchased
+FROM Customers c
+JOIN Orders o ON c.customer_id = o.customer_id
+JOIN Order_Items oi ON o.order_id = oi.order_id
+JOIN Products p ON oi.product_id = p.product_id
+GROUP BY c.customer_id, c.name, oi.product_id, p.name
+HAVING COUNT(oi.product_id) > 1;
+
+-- 10. Implement a mechanism to prevent adding a product to the 'order_items' table if the product does not exist in the 'products' table
+ALTER TABLE Order_Items
+ADD CONSTRAINT fk_product_exists FOREIGN KEY (product_id) REFERENCES Products(product_id) ON DELETE RESTRICT;
