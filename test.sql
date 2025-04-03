@@ -1,78 +1,68 @@
--- Creating tables
-CREATE TABLE Patrons (
-    PatronID SERIAL PRIMARY KEY,
-    Name VARCHAR(255) NOT NULL,
-    Address TEXT,
-    UniqueID VARCHAR(50) UNIQUE NOT NULL
-);
+-- 1. Retrieve the names and contact details of all customers who have rented a car in the last month
+SELECT DISTINCT c.name, c.email, c.phone
+FROM Customers c
+JOIN Rentals r ON c.customer_id = r.customer_id
+WHERE r.rental_date >= DATE_SUB(CURDATE(), INTERVAL 1 MONTH);
 
-CREATE TABLE Books (
-    ISBN VARCHAR(20) PRIMARY KEY,
-    Title VARCHAR(255) NOT NULL,
-    Author VARCHAR(255) NOT NULL,
-    PublicationYear INT,
-    Genre VARCHAR(100),
-    Availability BOOLEAN DEFAULT TRUE
-);
+-- 2. Calculate the average rental duration for each car model
+SELECT car.model, AVG(r.rental_duration_days) AS avg_rental_duration
+FROM Rentals r
+JOIN Cars car ON r.car_id = car.car_id
+GROUP BY car.model;
 
-CREATE TABLE BorrowedBooks (
-    BorrowID SERIAL PRIMARY KEY,
-    PatronID INT REFERENCES Patrons(PatronID),
-    ISBN VARCHAR(20) REFERENCES Books(ISBN),
-    BorrowDate DATE NOT NULL,
-    ReturnDate DATE
-);
+-- 3. Identify the most and least frequently rented car models
+SELECT car.model, COUNT(r.rental_id) AS rental_count
+FROM Rentals r
+JOIN Cars car ON r.car_id = car.car_id
+GROUP BY car.model
+ORDER BY rental_count DESC;
 
--- Register a new patron
-CREATE OR REPLACE PROCEDURE RegisterPatron(
-    IN p_name VARCHAR(255), 
-    IN p_address TEXT, 
-    IN p_uniqueid VARCHAR(50)
-)
-LANGUAGE SQL AS $$
-INSERT INTO Patrons (Name, Address, UniqueID) VALUES (p_name, p_address, p_uniqueid);
-$$;
+-- 4. Retrieve the details of customers who have made payments above a certain amount in the last quarter
+SELECT DISTINCT c.*
+FROM Customers c
+JOIN Rentals r ON c.customer_id = r.customer_id
+JOIN Payments p ON r.rental_id = p.rental_id
+WHERE p.amount > 500 -- Change 500 to the desired threshold
+AND p.payment_date >= DATE_SUB(CURDATE(), INTERVAL 3 MONTH);
 
--- Add a new book entry
-CREATE OR REPLACE PROCEDURE AddBook(
-    IN p_isbn VARCHAR(20), 
-    IN p_title VARCHAR(255), 
-    IN p_author VARCHAR(255), 
-    IN p_pubyear INT, 
-    IN p_genre VARCHAR(100)
-)
-LANGUAGE SQL AS $$
-INSERT INTO Books (ISBN, Title, Author, PublicationYear, Genre) VALUES (p_isbn, p_title, p_author, p_pubyear, p_genre);
-$$;
+-- 5. List all cars due for maintenance based on their mileage
+SELECT car.*
+FROM Cars car
+WHERE car.mileage >= car.maintenance_mileage;
 
--- Record a book being borrowed
-CREATE OR REPLACE PROCEDURE BorrowBook(
-    IN p_patronid INT, 
-    IN p_isbn VARCHAR(20), 
-    IN p_borrowdate DATE
-)
-LANGUAGE SQL AS $$
-INSERT INTO BorrowedBooks (PatronID, ISBN, BorrowDate) VALUES (p_patronid, p_isbn, p_borrowdate);
-UPDATE Books SET Availability = FALSE WHERE ISBN = p_isbn;
-$$;
+-- 6. Rank customers based on the total amount they've spent on rentals
+SELECT c.name, SUM(p.amount) AS total_spent,
+       RANK() OVER (ORDER BY SUM(p.amount) DESC) AS rank_position
+FROM Customers c
+JOIN Rentals r ON c.customer_id = r.customer_id
+JOIN Payments p ON r.rental_id = p.rental_id
+GROUP BY c.customer_id, c.name
+ORDER BY total_spent DESC;
 
--- Update book availability when returned
-CREATE OR REPLACE PROCEDURE ReturnBook(
-    IN p_isbn VARCHAR(20), 
-    IN p_returndate DATE
-)
-LANGUAGE SQL AS $$
-UPDATE BorrowedBooks SET ReturnDate = p_returndate WHERE ISBN = p_isbn AND ReturnDate IS NULL;
-UPDATE Books SET Availability = TRUE WHERE ISBN = p_isbn;
-$$;
+-- 7. Create a report that shows the daily revenue generated from car rentals
+SELECT r.rental_date, SUM(p.amount) AS daily_revenue
+FROM Rentals r
+JOIN Payments p ON r.rental_id = p.rental_id
+GROUP BY r.rental_date
+ORDER BY r.rental_date;
 
--- Retrieve names of patrons who borrowed a specific book
-SELECT DISTINCT p.Name FROM Patrons p
-JOIN BorrowedBooks bb ON p.PatronID = bb.PatronID
-JOIN Books b ON bb.ISBN = b.ISBN
-WHERE b.Title = 'Specific Book Title';
+-- 8. Identify any customers who have overdue rentals
+SELECT c.*
+FROM Customers c
+JOIN Rentals r ON c.customer_id = r.customer_id
+WHERE r.due_date < CURDATE() AND r.return_date IS NULL;
 
--- Total books borrowed by each patron
-SELECT p.Name, COUNT(bb.BorrowID) AS TotalBorrowed
-FROM Patrons p
-LEFT JOIN
+-- 9. Find the average rental price for each car category (e.g., Sedan, SUV, Hatchback)
+SELECT car.category, AVG(r.rental_price_per_day) AS avg_rental_price
+FROM Rentals r
+JOIN Cars car ON r.car_id = car.car_id
+GROUP BY car.category;
+
+-- 10. Retrieve the top 5 most profitable cars in the fleet
+SELECT car.model, SUM(p.amount) AS total_earnings
+FROM Rentals r
+JOIN Cars car ON r.car_id = car.car_id
+JOIN Payments p ON r.rental_id = p.rental_id
+GROUP BY car.model
+ORDER BY total_earnings DESC
+LIMIT 5;
