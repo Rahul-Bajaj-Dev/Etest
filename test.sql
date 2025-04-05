@@ -1,72 +1,71 @@
--- 1. Retrieve customers who made a purchase in the last quarter
+-- 1. Retrieve the names and contact details of all customers who have made a purchase in the last quarter
 SELECT DISTINCT c.customer_id, c.name, c.email, c.phone
 FROM customers c
-JOIN orders o ON c.customer_id = o.customer_id
-WHERE o.order_date >= DATE_TRUNC('quarter', CURRENT_DATE) - INTERVAL '1 quarter'
-  AND o.order_date < DATE_TRUNC('quarter', CURRENT_DATE);
+JOIN sales s ON c.customer_id = s.customer_id
+WHERE s.sale_date >= DATE_TRUNC('quarter', CURRENT_DATE) - INTERVAL '3 months';
 
--- 2. Product category-wise total revenue
-SELECT p.category, SUM(oi.quantity * oi.unit_price) AS total_revenue
-FROM products p
-JOIN order_items oi ON p.product_id = oi.product_id
+-- 2. Generate a report listing each product category and its total revenue generated
+SELECT p.category, SUM(s.quantity * s.unit_price) AS total_revenue
+FROM sales s
+JOIN products p ON s.product_id = p.product_id
 GROUP BY p.category;
 
--- 3. Top 5 selling products across all stores
-SELECT p.product_name, SUM(oi.quantity) AS total_units_sold
-FROM products p
-JOIN order_items oi ON p.product_id = oi.product_id
-GROUP BY p.product_name
-ORDER BY total_units_sold DESC
+-- 3. Identify and retrieve the top 5 selling products across all stores
+SELECT p.product_id, p.name, SUM(s.quantity) AS total_quantity_sold
+FROM sales s
+JOIN products p ON s.product_id = p.product_id
+GROUP BY p.product_id, p.name
+ORDER BY total_quantity_sold DESC
 LIMIT 5;
 
--- 4. Add 'preferred_communication' field to customers table
+-- 4. Add a new field to the customer table to store their preferred mode of communication
 ALTER TABLE customers
-ADD COLUMN preferred_communication VARCHAR(10);  -- Options: 'Email' or 'Phone'
+ADD COLUMN preferred_communication VARCHAR(20);
 
--- 5. Upgrade membership tier to 'Premium' for customers with >5 purchases
+-- 5. Upgrade membership tier to 'Premium' for customers with more than 5 purchases
 UPDATE customers
 SET membership_tier = 'Premium'
 WHERE customer_id IN (
-  SELECT customer_id
-  FROM orders
-  GROUP BY customer_id
-  HAVING COUNT(*) > 5
+    SELECT customer_id
+    FROM sales
+    GROUP BY customer_id
+    HAVING COUNT(*) > 5
 );
 
--- 6. Remove discontinued products with zero quantity in inventory
+-- 6. Remove products from the inventory that are 'Discontinued' and have zero quantity in stock
 DELETE FROM inventory
 WHERE product_id IN (
-  SELECT product_id FROM products WHERE status = 'Discontinued'
+    SELECT product_id
+    FROM products
+    WHERE status = 'Discontinued'
 )
 AND quantity = 0;
 
--- 7. Create a view combining customer info and their purchase history
-CREATE VIEW customer_purchase_history AS
-SELECT c.customer_id, c.name, c.email,
-       o.order_id, o.order_date,
-       oi.product_id, oi.quantity, oi.unit_price
+-- 7. Create a view that combines customer information and their purchase history
+CREATE OR REPLACE VIEW customer_purchase_history AS
+SELECT 
+    c.customer_id, c.name, c.email, c.phone, 
+    s.sale_id, s.product_id, s.quantity, s.unit_price, s.sale_date
 FROM customers c
-JOIN orders o ON c.customer_id = o.customer_id
-JOIN order_items oi ON o.order_id = oi.order_id;
+JOIN sales s ON c.customer_id = s.customer_id;
 
--- 8. Average purchase amount for each membership tier
-SELECT c.membership_tier, AVG(o.total_amount) AS avg_purchase
+-- 8. Find the average purchase amount for each customer category (Regular/Premium)
+SELECT c.membership_tier, AVG(s.quantity * s.unit_price) AS avg_purchase_amount
 FROM customers c
-JOIN orders o ON c.customer_id = o.customer_id
+JOIN sales s ON c.customer_id = s.customer_id
 GROUP BY c.membership_tier;
 
--- 9. Stores with highest average customer ratings
-SELECT s.store_id, s.store_name, AVG(r.rating) AS avg_rating
-FROM stores s
-JOIN ratings r ON s.store_id = r.store_id
-GROUP BY s.store_id, s.store_name
-ORDER BY avg_rating DESC
-LIMIT 5;
+-- 9. List the stores with the highest average customer ratings
+SELECT store_id, AVG(rating) AS avg_rating
+FROM store_reviews
+GROUP BY store_id
+ORDER BY avg_rating DESC;
 
--- 10. Monthly sales trends for the year 2023
-SELECT DATE_TRUNC('month', o.order_date) AS month,
-       SUM(o.total_amount) AS total_sales
-FROM orders o
-WHERE EXTRACT(YEAR FROM o.order_date) = 2023
+-- 10. Retrieve the monthly sales trends for the year 2023
+SELECT 
+    DATE_TRUNC('month', sale_date) AS month,
+    SUM(quantity * unit_price) AS total_sales
+FROM sales
+WHERE EXTRACT(YEAR FROM sale_date) = 2023
 GROUP BY month
 ORDER BY month;
